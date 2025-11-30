@@ -1,0 +1,13 @@
+[Unit]
+Description=Gunicorn instance to serve Lemona LED Matrix Server
+After=network.target
+
+[Service]
+User=root
+Group=www-data
+WorkingDirectory=/opt/lemona_serv
+Environment="PATH=/opt/lemona_serv/venv/bin"
+ExecStart=/opt/lemona_serv/venv/bin/gunicorn --workers 3 --bind unix:lemona.sock -m 007 main:app
+
+[Install]
+WantedBy=multi-user.target

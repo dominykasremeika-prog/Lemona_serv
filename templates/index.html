@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Matrix Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>LED Matrix Control</h1>
+        
+        <div class="tabs">
+            <button class="tab-btn active" onclick="openTab('draw')">Draw</button>
+            <button class="tab-btn" onclick="openTab('upload')">Upload</button>
+        </div>
+
+        <!-- Draw Tab -->
+        <div id="draw" class="tab-content active">
+            <div class="toolbar">
+                <div class="tool-group">
+                    <label>Color:</label>
+                    <input type="color" id="colorPicker" value="#ff0000">
+                </div>
+                <div class="tool-group">
+                    <label>Size:</label>
+                    <input type="range" id="brushSize" min="1" max="10" value="1">
+                    <span id="brushSizeVal">1</span>
+                </div>
+                <div class="tool-group">
+                    <button onclick="setTool('brush')" class="tool-btn active" id="btn-brush" title="Brush">Brush</button>
+                    <button onclick="setTool('eraser')" class="tool-btn" id="btn-eraser" title="Eraser">Eraser</button>
+                    <button onclick="setTool('bucket')" class="tool-btn" id="btn-bucket" title="Bucket Fill">Bucket</button>
+                </div>
+                <div class="tool-group">
+                    <button onclick="undo()" class="tool-btn" id="btn-undo" title="Undo (Ctrl+Z)">Undo</button>
+                    <button onclick="redo()" class="tool-btn" id="btn-redo" title="Redo (Ctrl+Y)">Redo</button>
+                    <button onclick="clearCanvas()" class="tool-btn danger" title="Clear Canvas">Clear</button>
+                </div>
+            </div>
+            
+            <div class="canvas-container">
+                <!-- 128x64 logical resolution, scaled up in CSS -->
+                <canvas id="pixelCanvas" width="128" height="64"></canvas>
+                <div class="split-line"></div>
+            </div>
+            
+            <button onclick="sendDrawing()" class="action-btn">Update Matrix</button>
+        </div>
+
+        <!-- Upload Tab -->
+        <div id="upload" class="tab-content">
+            <div class="upload-form">
+                <h3>Upload Image/GIF/Video</h3>
+                
+                <div class="mode-selection">
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="matrix_a" onchange="updateUploadInputs()">
+                        <div class="mode-info">
+                            <span class="mode-title">Matrix A Only</span>
+                            <span class="mode-desc">Display on the left matrix only.</span>
+                        </div>
+                    </label>
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="matrix_b" onchange="updateUploadInputs()">
+                        <div class="mode-info">
+                            <span class="mode-title">Matrix B Only</span>
+                            <span class="mode-desc">Display on the right matrix only.</span>
+                        </div>
+                    </label>
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="both" onchange="updateUploadInputs()">
+                        <div class="mode-info">
+                            <span class="mode-title">Both (Clone)</span>
+                            <span class="mode-desc">Show the same image on both matrices.</span>
+                        </div>
+                    </label>
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="split" checked onchange="updateUploadInputs()">
+                        <div class="mode-info">
+                            <span class="mode-title">Split (Span)</span>
+                            <span class="mode-desc">One image spans across both matrices (128x64).</span>
+                        </div>
+                    </label>
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="separate" onchange="updateUploadInputs()">
+                        <div class="mode-info">
+                            <span class="mode-title">Separate Files</span>
+                            <span class="mode-desc">Upload different files for each matrix.</span>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="file-inputs">
+                    <div id="input-group-a">
+                        <label>File (Main/A):</label>
+                        <input type="file" id="fileA" accept="image/*,video/*">
+                    </div>
+                    
+                    <div id="input-group-b" style="display: none;">
+                        <label>File (Matrix B):</label>
+                        <input type="file" id="fileB" accept="image/*,video/*">
+                    </div>
+                </div>
+
+                <button onclick="uploadFiles()" class="action-btn">Upload to Matrix</button>
+                <div id="uploadStatus"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
