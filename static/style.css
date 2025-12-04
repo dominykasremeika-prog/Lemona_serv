@@ -151,6 +151,54 @@ canvas {
     cursor: crosshair;
     border: 1px solid #333;
     display: block;
+    touch-action: none; /* Prevent scrolling on mobile while drawing */
+}
+
+.fullscreen-btn {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    transition: background 0.2s;
+}
+
+.fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+/* Fullscreen mode styles */
+.canvas-container.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+    margin: 0;
+    border: none;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.canvas-container.fullscreen canvas {
+    /* In fullscreen, we'll let JS handle the sizing or use max-width/height */
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
 }
 
 .split-line {
@@ -364,7 +412,7 @@ canvas {
     color: #aaa;
 }
 
-.form-group input {
+.form-group input, .form-group select {
     width: 100%;
     padding: 12px;
     background-color: #3a3a3a;
@@ -373,12 +421,14 @@ canvas {
     color: #fff;
     font-size: 16px;
     box-sizing: border-box;
+    transition: border-color 0.3s, box-shadow 0.3s;
 }
 
-.form-group input:focus {
+.form-group input:focus, .form-group select:focus {
     outline: none;
     border-color: #4CAF50;
     background-color: #444;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
 }
 
 .full-width {
@@ -486,4 +536,68 @@ canvas {
 .badge-approved {
     background-color: #4CAF50;
     color: white;
+}
+
+/* Settings Tab */
+.settings-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.telemetry-section, .config-section {
+    background-color: #333;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.telemetry-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 15px;
+}
+
+.telemetry-item {
+    background-color: #444;
+    padding: 10px;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+}
+
+.telemetry-item .label {
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 4px;
+}
+
+.telemetry-item .value {
+    font-size: 16px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.range-val {
+    display: inline-block;
+    width: 30px;
+    text-align: right;
+    margin-left: 10px;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.checkbox-group input {
+    width: auto;
+}
+
+small {
+    display: block;
+    color: #888;
+    font-size: 12px;
+    margin-top: 4px;
 }

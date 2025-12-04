@@ -31,9 +31,44 @@ class User(db.Model, UserMixin):
     def __repr__(self):
         return f"User('{self.username}', '{self.is_admin}', '{self.is_approved}')"
 
+class ClientSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    polling_rate = db.Column(db.Float, default=1.0)
+    gpio_slowdown = db.Column(db.Integer, default=4)
+    hardware_pulsing = db.Column(db.Boolean, default=True)
+    brightness = db.Column(db.Integer, default=50)
+    position_1 = db.Column(db.Integer, default=0)
+    position_2 = db.Column(db.Integer, default=0)
+    request_send_rate = db.Column(db.Float, default=1.0)
+    wifi_ssid = db.Column(db.String(100), default="")
+    wifi_password = db.Column(db.String(100), default="")
+    
+    # Default singleton retrieval
+    @classmethod
+    def get_settings(cls):
+        settings = cls.query.first()
+        if not settings:
+            settings = cls(
+                polling_rate=1.0, 
+                gpio_slowdown=4, 
+                hardware_pulsing=True, 
+                brightness=50, 
+                position_1=0,
+                position_2=0,
+                request_send_rate=1.0,
+                wifi_ssid="",
+                wifi_password=""
+            )
+            db.session.add(settings)
+            db.session.commit()
+        return settings
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# --- Global State for Telemetry ---
+latest_telemetry = {}
 
 # --- Decorators ---
 def admin_required(f):
@@ -302,6 +337,7 @@ def register():
         
         db.session.add(user)
         db.session.commit()
+
         
         flash('Account created! Please log in.', 'success')
         return redirect(url_for('login'))
@@ -470,6 +506,108 @@ def handle_upload():
     except Exception as e:
         print(f"Error in upload: {e}")
         return jsonify({'error': str(e)}), 500
+
+# --- Client API Routes ---
+
+@app.route('/api/telemetry', methods=['POST'])
+def receive_telemetry():
+    """
+    Endpoint for the Raspberry Pi to report its status.
+    """
+    global latest_telemetry
+    try:
+        data = request.json
+        # Add timestamp
+        data['last_seen'] = time.time()
+        latest_telemetry = data
+        
+        # We could optionally return the new config here if we wanted to combine calls
+        return jsonify({'status': 'success'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/client-config', methods=['GET'])
+def get_client_config():
+    """
+    Endpoint for the Raspberry Pi to fetch its configuration.
+    """
+    settings = ClientSettings.get_settings()
+    return jsonify({
+        'polling_rate': settings.polling_rate,
+        'gpio_slowdown': settings.gpio_slowdown,
+        'hardware_pulsing': settings.hardware_pulsing,
+        'brightness': settings.brightness,
+        'position_1': settings.position_1,
+        'position_2': settings.position_2,
+        'request_send_rate': settings.request_send_rate,
+        'wifi_ssid': settings.wifi_ssid,
+        'wifi_password': settings.wifi_password
+    })
+
+# --- Admin Settings Routes ---
+
+@app.route('/api/admin/settings', methods=['GET'])
+@admin_required
+def get_admin_settings():
+    """
+    Endpoint for the Web UI to get current settings and live telemetry.
+    """
+    settings = ClientSettings.get_settings()
+    
+    # Calculate time since last telemetry
+    telemetry_age = None
+    if 'last_seen' in latest_telemetry:
+        telemetry_age = time.time() - latest_telemetry['last_seen']
+
+    return jsonify({
+        'settings': {
+            'polling_rate': settings.polling_rate,
+            'gpio_slowdown': settings.gpio_slowdown,
+            'hardware_pulsing': settings.hardware_pulsing,
+            'brightness': settings.brightness,
+            'position_1': settings.position_1,
+            'position_2': settings.position_2,
+            'request_send_rate': settings.request_send_rate,
+            'wifi_ssid': settings.wifi_ssid,
+            'wifi_password': settings.wifi_password
+        },
+        'telemetry': latest_telemetry,
+        'telemetry_age': telemetry_age
+    })
+
+@app.route('/api/admin/settings', methods=['POST'])
+@admin_required
+def update_admin_settings():
+    """
+    Endpoint for the Web UI to update settings.
+    """
+    try:
+        data = request.json
+        settings = ClientSettings.get_settings()
+        
+        if 'polling_rate' in data:
+            settings.polling_rate = float(data['polling_rate'])
+        if 'gpio_slowdown' in data:
+            settings.gpio_slowdown = int(data['gpio_slowdown'])
+        if 'hardware_pulsing' in data:
+            settings.hardware_pulsing = bool(data['hardware_pulsing'])
+        if 'brightness' in data:
+            settings.brightness = int(data['brightness'])
+        if 'position_1' in data:
+            settings.position_1 = int(data['position_1'])
+        if 'position_2' in data:
+            settings.position_2 = int(data['position_2'])
+        if 'request_send_rate' in data:
+            settings.request_send_rate = float(data['request_send_rate'])
+        if 'wifi_ssid' in data:
+            settings.wifi_ssid = data['wifi_ssid']
+        if 'wifi_password' in data:
+            settings.wifi_password = data['wifi_password']
+            
+        db.session.commit()
+        return jsonify({'message': 'Settings updated successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
     with app.app_context():

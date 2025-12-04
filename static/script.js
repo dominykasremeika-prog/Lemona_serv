@@ -184,6 +184,38 @@ canvas.addEventListener('mouseleave', () => {
     }
 });
 
+// Touch Support for Mobile
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    isDrawing = true;
+    const touch = e.touches[0];
+    const pos = getMousePos(touch);
+    
+    if (currentTool === 'bucket') {
+        floodFill(pos.x, pos.y, colorPicker.value);
+    } else {
+        const color = currentTool === 'eraser' ? '#000000' : colorPicker.value;
+        drawPixel(pos.x, pos.y, color, parseInt(brushSize.value));
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!isDrawing || currentTool === 'bucket') return;
+    const touch = e.touches[0];
+    const pos = getMousePos(touch);
+    const color = currentTool === 'eraser' ? '#000000' : colorPicker.value;
+    drawPixel(pos.x, pos.y, color, parseInt(brushSize.value));
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (isDrawing) {
+        isDrawing = false;
+        saveState();
+    }
+}, { passive: false });
+
 // Keyboard Shortcuts
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'z') {
@@ -214,6 +246,35 @@ async function sendDrawing() {
         showToast('Failed to send drawing.', 'error');
     }
 }
+
+// Fullscreen Logic
+function toggleFullscreen() {
+    const container = document.getElementById('canvasContainer');
+    container.classList.toggle('fullscreen');
+    
+    // If entering fullscreen, try to request browser fullscreen for better immersion
+    if (container.classList.contains('fullscreen')) {
+        if (container.requestFullscreen) {
+            container.requestFullscreen().catch(err => {
+                console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+            });
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen().catch(err => {
+                // Ignore error if not in fullscreen
+            });
+        }
+    }
+}
+
+// Listen for fullscreen change events (e.g. user presses Esc)
+document.addEventListener('fullscreenchange', () => {
+    const container = document.getElementById('canvasContainer');
+    if (!document.fullscreenElement && container.classList.contains('fullscreen')) {
+        container.classList.remove('fullscreen');
+    }
+});
 
 // Upload Logic
 function updateUploadInputs() {
@@ -380,8 +441,129 @@ window.openTab = function(tabName) {
     originalOpenTab(tabName);
     if (tabName === 'admin') {
         loadUsers();
+    } else if (tabName === 'settings') {
+        loadSettings();
+        startTelemetryPoll();
+    } else {
+        stopTelemetryPoll();
     }
 };
+
+// Settings & Telemetry Logic
+let telemetryInterval;
+
+function startTelemetryPoll() {
+    stopTelemetryPoll();
+    loadSettings(); // Initial load
+    telemetryInterval = setInterval(loadSettings, 2000); // Poll every 2s
+}
+
+function stopTelemetryPoll() {
+    if (telemetryInterval) {
+        clearInterval(telemetryInterval);
+        telemetryInterval = null;
+    }
+}
+
+function loadSettings() {
+    fetch('/api/admin/settings')
+        .then(res => res.json())
+        .then(data => {
+            updateTelemetryUI(data.telemetry, data.telemetry_age);
+            
+            // Only update form if not currently being edited (simple check: active element)
+            if (!document.getElementById('config-form').contains(document.activeElement)) {
+                updateConfigForm(data.settings);
+            }
+        })
+        .catch(err => console.error("Failed to load settings", err));
+}
+
+function updateTelemetryUI(telemetry, age) {
+    const statusEl = document.getElementById('tel-status');
+    if (age !== null && age < 10) {
+        statusEl.textContent = 'Online';
+        statusEl.style.color = '#4CAF50';
+    } else {
+        statusEl.textContent = 'Offline';
+        statusEl.style.color = '#f44336';
+    }
+
+    if (telemetry && telemetry.network) {
+        document.getElementById('tel-ip').textContent = telemetry.network.ip || '-';
+        document.getElementById('tel-network').textContent = `${telemetry.network.type} (${telemetry.network.ssid || ''})`;
+    }
+    
+    if (telemetry) {
+        document.getElementById('tel-refresh').textContent = telemetry.refresh_rate ? `${telemetry.refresh_rate} Hz` : '-';
+    }
+}
+
+function updateConfigForm(settings) {
+    if (!settings) return;
+    
+    document.getElementById('conf-brightness').value = settings.brightness;
+    document.getElementById('val-brightness').textContent = settings.brightness;
+    document.getElementById('conf-polling').value = settings.polling_rate;
+    document.getElementById('val-polling').textContent = settings.polling_rate;
+    document.getElementById('conf-gpio').value = settings.gpio_slowdown;
+    document.getElementById('val-gpio').textContent = settings.gpio_slowdown;
+    
+    // New fields
+    document.getElementById('conf-pos1').value = settings.position_1;
+    document.getElementById('conf-pos2').value = settings.position_2;
+    document.getElementById('conf-req-rate').value = settings.request_send_rate;
+    
+    document.getElementById('conf-wifi-ssid').value = settings.wifi_ssid || '';
+    document.getElementById('conf-wifi-pass').value = settings.wifi_password || '';
+
+    document.getElementById('conf-pulsing').checked = settings.hardware_pulsing;
+}
+
+function saveSettings() {
+    const data = {
+        brightness: parseInt(document.getElementById('conf-brightness').value),
+        polling_rate: parseFloat(document.getElementById('conf-polling').value),
+        gpio_slowdown: parseInt(document.getElementById('conf-gpio').value),
+        
+        // New fields
+        position_1: parseInt(document.getElementById('conf-pos1').value),
+        position_2: parseInt(document.getElementById('conf-pos2').value),
+        request_send_rate: parseFloat(document.getElementById('conf-req-rate').value),
+        
+        wifi_ssid: document.getElementById('conf-wifi-ssid').value,
+        wifi_password: document.getElementById('conf-wifi-pass').value,
+
+        hardware_pulsing: document.getElementById('conf-pulsing').checked
+    };
+
+    fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(result => {
+        if (result.error) {
+            showToast(result.error, 'error');
+        } else {
+            showToast('Configuration saved!', 'success');
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast('Failed to save settings', 'error');
+    });
+}
+
+function togglePasswordVisibility(id) {
+    const input = document.getElementById(id);
+    if (input.type === "password") {
+        input.type = "text";
+    } else {
+        input.type = "password";
+    }
+}
 
 // Status Polling
 function updateStatus() {

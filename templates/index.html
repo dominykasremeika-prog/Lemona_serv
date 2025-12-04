@@ -26,6 +26,7 @@
             <button class="tab-btn" onclick="openTab('upload')">Upload</button>
             {% if user.is_admin %}
             <button class="tab-btn" onclick="openTab('admin')">Admin</button>
+            <button class="tab-btn" onclick="openTab('settings')">Settings</button>
             {% endif %}
         </div>
 
@@ -53,10 +54,11 @@
                 </div>
             </div>
             
-            <div class="canvas-container">
+            <div class="canvas-container" id="canvasContainer">
                 <!-- 128x64 logical resolution, scaled up in CSS -->
                 <canvas id="pixelCanvas" width="128" height="64"></canvas>
                 <div class="split-line"></div>
+                <button onclick="toggleFullscreen()" class="fullscreen-btn" title="Toggle Fullscreen">⛶</button>
             </div>
             
             <button onclick="sendDrawing()" class="action-btn">Update Matrix</button>
@@ -132,6 +134,107 @@
             <div id="user-list" class="user-list">
                 <!-- Users will be loaded here -->
                 <p>Loading users...</p>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="settings-container">
+                <div class="telemetry-section">
+                    <h3>Live Status</h3>
+                    <div id="telemetry-data" class="telemetry-grid">
+                        <div class="telemetry-item">
+                            <span class="label">Status:</span>
+                            <span class="value" id="tel-status">Unknown</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="label">IP Address:</span>
+                            <span class="value" id="tel-ip">-</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="label">Network:</span>
+                            <span class="value" id="tel-network">-</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="label">Refresh Rate:</span>
+                            <span class="value" id="tel-refresh">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <h3>Client Configuration</h3>
+                    <form id="config-form" onsubmit="event.preventDefault(); saveSettings();">
+                        <div class="form-group">
+                            <label>Brightness (0-100)</label>
+                            <input type="range" id="conf-brightness" min="0" max="100" oninput="document.getElementById('val-brightness').textContent = this.value">
+                            <span id="val-brightness" class="range-val">50</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Polling Rate (Hz)</label>
+                            <div style="display: flex; align-items: center;">
+                                <input type="range" id="conf-polling" step="0.1" min="0.1" max="60" oninput="document.getElementById('val-polling').textContent = this.value">
+                                <span id="val-polling" class="range-val">1.0</span>
+                            </div>
+                            <small>How often the client checks for new images.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>GPIO Slowdown (0-4)</label>
+                            <div style="display: flex; align-items: center;">
+                                <input type="range" id="conf-gpio" min="0" max="4" step="1" oninput="document.getElementById('val-gpio').textContent = this.value">
+                                <span id="val-gpio" class="range-val">4</span>
+                            </div>
+                            <small>Increase if matrix is flickering or glitching.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Position 1 (0-3)</label>
+                            <input type="number" id="conf-pos1" min="0" max="3">
+                            <small>Orientation for Matrix 1.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Position 2 (0-3)</label>
+                            <input type="number" id="conf-pos2" min="0" max="3">
+                            <small>Orientation for Matrix 2.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Request Send Rate (seconds)</label>
+                            <input type="number" id="conf-req-rate" step="0.1" min="0.1">
+                            <small>Interval for sending requests.</small>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="conf-pulsing">
+                                Hardware Pulsing
+                            </label>
+                            <small>Use hardware PWM for less flicker (requires sound to be disabled on Pi).</small>
+                        </div>
+
+                        <hr style="border-color: #444; margin: 20px 0;">
+                        <h3>WiFi Configuration</h3>
+                        
+                        <div class="form-group">
+                            <label>WiFi SSID</label>
+                            <input type="text" id="conf-wifi-ssid" placeholder="Enter SSID">
+                        </div>
+                        <div class="form-group">
+                            <label>WiFi Password</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="password" id="conf-wifi-pass" placeholder="Enter Password">
+                                <label style="display: flex; align-items: center; gap: 5px; white-space: nowrap; margin: 0; cursor: pointer; color: #aaa; font-size: 14px;">
+                                    <input type="checkbox" onchange="togglePasswordVisibility('conf-wifi-pass')" style="width: auto;"> Show
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="action-btn">Save Configuration</button>
+                    </form>
+                </div>
             </div>
         </div>
         {% endif %}
