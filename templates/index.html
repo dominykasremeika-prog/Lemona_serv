@@ -8,11 +8,25 @@
 </head>
 <body>
     <div class="container">
-        <h1>LED Matrix Control</h1>
+        <div class="header-row">
+            <h1>LED Matrix Control</h1>
+            <div class="status-indicators">
+                <div class="status-item" id="status-pi" title="Raspberry Pi Connection">
+                    <span class="status-dot"></span> Raspberry Pi
+                </div>
+                <div class="status-item">
+                    <span>{{ user.username }}</span>
+                    <a href="{{ url_for('logout') }}" class="tool-btn danger" style="text-decoration: none; font-size: 12px; padding: 2px 8px;">Logout</a>
+                </div>
+            </div>
+        </div>
         
         <div class="tabs">
             <button class="tab-btn active" onclick="openTab('draw')">Draw</button>
             <button class="tab-btn" onclick="openTab('upload')">Upload</button>
+            {% if user.is_admin %}
+            <button class="tab-btn" onclick="openTab('admin')">Admin</button>
+            {% endif %}
         </div>
 
         <!-- Draw Tab -->
@@ -103,12 +117,27 @@
                     </div>
                 </div>
 
-                <button onclick="uploadFiles()" class="action-btn">Upload to Matrix</button>
+                <div class="action-row">
+                    <button onclick="uploadFiles()" class="action-btn">Upload to Matrix</button>
+                    <button onclick="clearMatrix()" class="action-btn danger">Clear Matrix</button>
+                </div>
                 <div id="uploadStatus"></div>
             </div>
         </div>
+
+        {% if user.is_admin %}
+        <!-- Admin Tab -->
+        <div id="admin" class="tab-content">
+            <h3>User Management</h3>
+            <div id="user-list" class="user-list">
+                <!-- Users will be loaded here -->
+                <p>Loading users...</p>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <div id="toast-container"></div>
 </body>
 </html>

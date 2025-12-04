@@ -1,3 +1,8 @@
 flask
 Pillow
 gunicorn
+imageio
+imageio-ffmpeg
+flask-login
+flask-sqlalchemy
+flask-bcrypt

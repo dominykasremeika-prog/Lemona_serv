@@ -208,10 +208,10 @@ async function sendDrawing() {
             body: JSON.stringify({ image: dataUrl })
         });
         const result = await response.json();
-        alert(result.message || 'Drawing sent!');
+        showToast(result.message || 'Drawing sent!', 'success');
     } catch (error) {
         console.error('Error:', error);
-        alert('Failed to send drawing.');
+        showToast('Failed to send drawing.', 'error');
     }
 }
 
@@ -247,9 +247,159 @@ async function uploadFiles() {
             body: formData
         });
         const result = await response.json();
-        statusDiv.textContent = result.message || result.error;
+        statusDiv.textContent = '';
+        if (response.ok) {
+            showToast(result.message || 'Upload successful!', 'success');
+        } else {
+            showToast(result.error || 'Upload failed.', 'error');
+        }
     } catch (error) {
         console.error('Error:', error);
-        statusDiv.textContent = 'Upload failed.';
+        statusDiv.textContent = '';
+        showToast('Upload failed.', 'error');
     }
 }
+
+async function clearMatrix() {
+    try {
+        const response = await fetch('/api/clear', { method: 'POST' });
+        const result = await response.json();
+        showToast(result.message, 'info');
+    } catch (error) {
+        console.error('Error:', error);
+        showToast('Failed to clear matrix.', 'error');
+    }
+}
+
+// Toast Notification Logic
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    // Add icon based on type
+    let icon = '';
+    if (type === 'success') icon = '✓ ';
+    else if (type === 'error') icon = '✕ ';
+    else if (type === 'info') icon = 'ℹ ';
+    
+    toast.textContent = icon + message;
+    
+    container.appendChild(toast);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        toast.addEventListener('animationend', () => {
+            toast.remove();
+        });
+    }, 3000);
+}
+
+// Admin Logic
+function loadUsers() {
+    const userList = document.getElementById('user-list');
+    if (!userList) return; // Not on admin tab or not admin
+
+    fetch('/api/admin/users')
+        .then(res => res.json())
+        .then(users => {
+            userList.innerHTML = '';
+            users.forEach(user => {
+                const card = document.createElement('div');
+                card.className = 'user-card';
+                
+                let roleBadge = user.is_admin ? '<span class="badge badge-admin">Admin</span>' : '';
+                let statusBadge = user.is_approved ? '<span class="badge badge-approved">Approved</span>' : '<span class="badge badge-pending">Pending</span>';
+                
+                let actions = '';
+                if (!user.is_approved) {
+                    actions += `<button onclick="approveUser(${user.id})" class="tool-btn active">Approve</button>`;
+                }
+                if (!user.is_admin && user.is_approved) {
+                    actions += `<button onclick="promoteUser(${user.id})" class="tool-btn">Promote</button>`;
+                }
+                actions += `<button onclick="kickUser(${user.id})" class="tool-btn danger">Kick</button>`;
+
+                card.innerHTML = `
+                    <div class="user-info">
+                        <span class="user-name">${user.username}</span>
+                        <div class="user-role">
+                            ${roleBadge} ${statusBadge}
+                        </div>
+                    </div>
+                    <div class="user-actions">
+                        ${actions}
+                    </div>
+                `;
+                userList.appendChild(card);
+            });
+        })
+        .catch(err => {
+            console.error(err);
+            showToast('Failed to load users', 'error');
+        });
+}
+
+function approveUser(id) {
+    fetch(`/api/admin/approve/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            showToast(data.message, 'success');
+            loadUsers();
+        });
+}
+
+function promoteUser(id) {
+    if(!confirm('Promote this user to Admin?')) return;
+    fetch(`/api/admin/promote/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            showToast(data.message, 'success');
+            loadUsers();
+        });
+}
+
+function kickUser(id) {
+    if(!confirm('Are you sure you want to delete this user?')) return;
+    fetch(`/api/admin/kick/${id}`, { method: 'POST' })
+        .then(res => {
+            if(res.ok) return res.json();
+            throw new Error('Failed to kick user');
+        })
+        .then(data => {
+            showToast(data.message, 'success');
+            loadUsers();
+        })
+        .catch(err => showToast(err.message, 'error'));
+}
+
+// Hook into tab switching to load users
+const originalOpenTab = window.openTab;
+window.openTab = function(tabName) {
+    originalOpenTab(tabName);
+    if (tabName === 'admin') {
+        loadUsers();
+    }
+};
+
+// Status Polling
+function updateStatus() {
+    fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+            const statusPi = document.getElementById('status-pi');
+            
+            // If either A or B is connected, show as connected
+            if (data.a || data.b) {
+                statusPi.classList.add('connected');
+            } else {
+                statusPi.classList.remove('connected');
+            }
+        })
+        .catch(err => console.error("Status poll error", err));
+}
+
+// Poll every 2 seconds
+setInterval(updateStatus, 2000);
+updateStatus();

@@ -17,9 +17,46 @@ body {
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 }
 
-h1 {
-    text-align: center;
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 20px;
+}
+
+h1 {
+    margin: 0;
+    text-align: left;
+}
+
+.status-indicators {
+    display: flex;
+    gap: 15px;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+    color: #aaa;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #555;
+    display: inline-block;
+}
+
+.status-item.connected .status-dot {
+    background-color: #4CAF50;
+    box-shadow: 0 0 5px #4CAF50;
+}
+
+.status-item.connected {
+    color: #fff;
 }
 
 /* Tabs */
@@ -190,6 +227,12 @@ canvas {
     border-radius: 4px;
 }
 
+.action-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
 .action-btn {
     padding: 10px 20px;
     background-color: #4CAF50;
@@ -198,14 +241,249 @@ canvas {
     border-radius: 4px;
     cursor: pointer;
     font-size: 16px;
-    align-self: flex-start;
 }
 
 .action-btn:hover {
     background-color: #45a049;
 }
 
+.action-btn.danger {
+    background-color: #d32f2f;
+}
+
+.action-btn.danger:hover {
+    background-color: #b71c1c;
+}
+
 #uploadStatus {
     margin-top: 10px;
     font-weight: bold;
+}
+
+/* Toast Notifications */
+#toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.toast {
+    background-color: rgba(45, 45, 45, 0.95);
+    color: #fff;
+    padding: 16px 24px;
+    border-radius: 8px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    min-width: 300px;
+    animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    border-left: 6px solid #555;
+    backdrop-filter: blur(5px);
+    font-size: 15px;
+    letter-spacing: 0.5px;
+}
+
+.toast.success {
+    border-left-color: #4CAF50;
+    background: linear-gradient(to right, rgba(76, 175, 80, 0.1), rgba(45, 45, 45, 0.95) 20%);
+}
+
+.toast.error {
+    border-left-color: #f44336;
+    background: linear-gradient(to right, rgba(244, 67, 54, 0.1), rgba(45, 45, 45, 0.95) 20%);
+}
+
+.toast.info {
+    border-left-color: #2196F3;
+    background: linear-gradient(to right, rgba(33, 150, 243, 0.1), rgba(45, 45, 45, 0.95) 20%);
+}
+
+.toast.fade-out {
+    animation: fadeOut 0.4s ease-in forwards;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(120%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(120%);
+        opacity: 0;
+    }
+}
+
+/* Auth Pages */
+.auth-body {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #121212;
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 400px;
+    background-color: #2d2d2d;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    text-align: center;
+}
+
+.auth-container h1 {
+    margin-bottom: 30px;
+    text-align: center;
+    color: #fff;
+}
+
+.form-group {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #aaa;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 12px;
+    background-color: #3a3a3a;
+    border: 1px solid #555;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    background-color: #444;
+}
+
+.full-width {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    margin-top: 10px;
+}
+
+.auth-footer {
+    margin-top: 20px;
+    font-size: 14px;
+    color: #888;
+}
+
+.auth-footer a {
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+.auth-footer a:hover {
+    text-decoration: underline;
+}
+
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 6px;
+    text-align: left;
+}
+
+.alert-error {
+    background-color: rgba(244, 67, 54, 0.2);
+    border: 1px solid #f44336;
+    color: #ffcdd2;
+}
+
+.alert-success {
+    background-color: rgba(76, 175, 80, 0.2);
+    border: 1px solid #4CAF50;
+    color: #c8e6c9;
+}
+
+.alert-warning {
+    background-color: rgba(255, 152, 0, 0.2);
+    border: 1px solid #ff9800;
+    color: #ffe0b2;
+}
+
+/* Admin Panel */
+.user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.user-card {
+    background-color: #3a3a3a;
+    padding: 15px;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-name {
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.user-role {
+    font-size: 12px;
+    color: #aaa;
+    margin-top: 4px;
+}
+
+.user-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+.badge-admin {
+    background-color: #9c27b0;
+    color: white;
+}
+
+.badge-pending {
+    background-color: #ff9800;
+    color: black;
+}
+
+.badge-approved {
+    background-color: #4CAF50;
+    color: white;
 }
