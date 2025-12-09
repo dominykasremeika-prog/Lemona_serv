@@ -444,10 +444,97 @@ window.openTab = function(tabName) {
     } else if (tabName === 'settings') {
         loadSettings();
         startTelemetryPoll();
+    } else if (tabName === 'sdcard') {
+        loadSDFiles();
     } else {
         stopTelemetryPoll();
     }
 };
+
+// SD Card Logic
+function loadSDFiles() {
+    const list = document.getElementById('sd-file-list');
+    if (!list) return;
+
+    fetch('/api/sd/files')
+        .then(res => res.json())
+        .then(data => {
+            list.innerHTML = '';
+            if (data.files.length === 0) {
+                list.innerHTML = '<p>No files found.</p>';
+                return;
+            }
+            
+            data.files.forEach(filename => {
+                const card = document.createElement('div');
+                card.className = 'user-card'; // Reuse user-card style
+                card.innerHTML = `
+                    <div class="user-info">
+                        <span class="user-name">${filename}</span>
+                    </div>
+                    <div class="user-actions">
+                        <button onclick="deleteSDFile('${filename}')" class="tool-btn danger">Delete</button>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        })
+        .catch(err => {
+            console.error(err);
+            showToast('Failed to load files', 'error');
+        });
+}
+
+async function uploadSDFile() {
+    const fileInput = document.getElementById('fileSD');
+    const file = fileInput.files[0];
+    if (!file) {
+        showToast('Please select a file', 'error');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const statusDiv = document.getElementById('sdUploadStatus');
+    statusDiv.textContent = 'Uploading...';
+    
+    try {
+        const response = await fetch('/api/sd/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        statusDiv.textContent = '';
+        if (response.ok) {
+            showToast(result.message, 'success');
+            fileInput.value = ''; // Clear input
+            loadSDFiles(); // Refresh list
+        } else {
+            showToast(result.error || 'Upload failed', 'error');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        statusDiv.textContent = '';
+        showToast('Upload failed', 'error');
+    }
+}
+
+function deleteSDFile(filename) {
+    if(!confirm(`Delete ${filename}?`)) return;
+    
+    fetch(`/api/sd/files/${filename}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+            } else {
+                showToast(data.message, 'success');
+                loadSDFiles();
+            }
+        })
+        .catch(err => showToast('Failed to delete file', 'error'));
+}
 
 // Settings & Telemetry Logic
 let telemetryInterval;
@@ -511,13 +598,22 @@ function updateConfigForm(settings) {
     
     // New fields
     document.getElementById('conf-pos1').value = settings.position_1;
-    document.getElementById('conf-pos2').value = settings.position_2;
+    document.getElementById('val-pos1').textContent = settings.position_1; // Update display
+    
     document.getElementById('conf-req-rate').value = settings.request_send_rate;
     
     document.getElementById('conf-wifi-ssid').value = settings.wifi_ssid || '';
     document.getElementById('conf-wifi-pass').value = settings.wifi_password || '';
 
     document.getElementById('conf-pulsing').checked = settings.hardware_pulsing;
+    document.getElementById('conf-sd-fallback').checked = settings.use_sd_card_fallback;
+}
+
+function rotatePosition1() {
+    let current = parseInt(document.getElementById('conf-pos1').value) || 0;
+    current = (current + 90) % 360;
+    document.getElementById('conf-pos1').value = current;
+    document.getElementById('val-pos1').textContent = current;
 }
 
 function saveSettings() {
@@ -528,13 +624,13 @@ function saveSettings() {
         
         // New fields
         position_1: parseInt(document.getElementById('conf-pos1').value),
-        position_2: parseInt(document.getElementById('conf-pos2').value),
         request_send_rate: parseFloat(document.getElementById('conf-req-rate').value),
         
         wifi_ssid: document.getElementById('conf-wifi-ssid').value,
         wifi_password: document.getElementById('conf-wifi-pass').value,
 
-        hardware_pulsing: document.getElementById('conf-pulsing').checked
+        hardware_pulsing: document.getElementById('conf-pulsing').checked,
+        use_sd_card_fallback: document.getElementById('conf-sd-fallback').checked
     };
 
     fetch('/api/admin/settings', {

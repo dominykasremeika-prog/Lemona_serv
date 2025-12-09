@@ -25,6 +25,7 @@
             <button class="tab-btn active" onclick="openTab('draw')">Draw</button>
             <button class="tab-btn" onclick="openTab('upload')">Upload</button>
             {% if user.is_admin %}
+            <button class="tab-btn" onclick="openTab('sdcard')">SD Card</button>
             <button class="tab-btn" onclick="openTab('admin')">Admin</button>
             <button class="tab-btn" onclick="openTab('settings')">Settings</button>
             {% endif %}
@@ -127,6 +128,33 @@
             </div>
         </div>
 
+        <!-- SD Card Tab -->
+        <div id="sdcard" class="tab-content">
+            <div class="upload-form">
+                <h3>SD Card Management</h3>
+                <p>Upload files here to be stored on the Raspberry Pi's SD card. These files will be displayed when the "SD Card Fallback" mode is active (e.g., when screens are cleared/black).</p>
+                
+                <div class="file-inputs">
+                    <div id="input-group-sd">
+                        <label>Select File:</label>
+                        <input type="file" id="fileSD" accept="image/*,video/*">
+                    </div>
+                </div>
+
+                <div class="action-row">
+                    <button onclick="uploadSDFile()" class="action-btn">Upload to SD Card</button>
+                </div>
+                <div id="sdUploadStatus"></div>
+                
+                <hr style="border-color: #444; margin: 20px 0;">
+                
+                <h3>Stored Files</h3>
+                <div id="sd-file-list" class="user-list">
+                    <p>Loading files...</p>
+                </div>
+            </div>
+        </div>
+
         {% if user.is_admin %}
         <!-- Admin Tab -->
         <div id="admin" class="tab-content">
@@ -190,15 +218,13 @@
                         </div>
 
                         <div class="form-group">
-                            <label>Position 1 (0-3)</label>
-                            <input type="number" id="conf-pos1" min="0" max="3">
-                            <small>Orientation for Matrix 1.</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Position 2 (0-3)</label>
-                            <input type="number" id="conf-pos2" min="0" max="3">
-                            <small>Orientation for Matrix 2.</small>
+                            <label>Position 1 (Orientation)</label>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button type="button" class="tool-btn" onclick="rotatePosition1()" title="Rotate 90°" style="font-size: 18px; padding: 5px 12px;">↻</button>
+                                <span id="val-pos1" style="font-size: 18px; font-weight: bold;">0</span><span style="font-size: 18px;">°</span>
+                                <input type="hidden" id="conf-pos1">
+                            </div>
+                            <small>Click to rotate 90 degrees.</small>
                         </div>
 
                         <div class="form-group">
@@ -213,6 +239,14 @@
                                 Hardware Pulsing
                             </label>
                             <small>Use hardware PWM for less flicker (requires sound to be disabled on Pi).</small>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="conf-sd-fallback">
+                                Enable SD Card Fallback
+                            </label>
+                            <small>If enabled, the Pi will display files from the SD card when the screen is cleared/black.</small>
                         </div>
 
                         <hr style="border-color: #444; margin: 20px 0;">

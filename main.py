@@ -9,11 +9,16 @@ import time
 import os
 import tempfile
 import imageio
+import threading
+import requests
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here' # Change this in production
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+SD_UPLOAD_FOLDER = 'sd_uploads'
+if not os.path.exists(SD_UPLOAD_FOLDER):
+    os.makedirs(SD_UPLOAD_FOLDER)
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -42,6 +47,7 @@ class ClientSettings(db.Model):
     request_send_rate = db.Column(db.Float, default=1.0)
     wifi_ssid = db.Column(db.String(100), default="")
     wifi_password = db.Column(db.String(100), default="")
+    use_sd_card_fallback = db.Column(db.Boolean, default=False)
     
     # Default singleton retrieval
     @classmethod
@@ -57,7 +63,8 @@ class ClientSettings(db.Model):
                 position_2=0,
                 request_send_rate=1.0,
                 wifi_ssid="",
-                wifi_password=""
+                wifi_password="",
+                use_sd_card_fallback=False
             )
             db.session.add(settings)
             db.session.commit()
@@ -550,15 +557,15 @@ def get_client_config():
 @admin_required
 def get_admin_settings():
     """
-    Endpoint for the Web UI to get current settings and live telemetry.
+    Endpoint for the Web UI to get current settings.
     """
     settings = ClientSettings.get_settings()
     
-    # Calculate time since last telemetry
+    # Calculate telemetry age
     telemetry_age = None
-    if 'last_seen' in latest_telemetry:
-        telemetry_age = time.time() - latest_telemetry['last_seen']
-
+    if 'timestamp' in latest_telemetry:
+        telemetry_age = time.time() - latest_telemetry['timestamp']
+        
     return jsonify({
         'settings': {
             'polling_rate': settings.polling_rate,
@@ -569,7 +576,8 @@ def get_admin_settings():
             'position_2': settings.position_2,
             'request_send_rate': settings.request_send_rate,
             'wifi_ssid': settings.wifi_ssid,
-            'wifi_password': settings.wifi_password
+            'wifi_password': settings.wifi_password,
+            'use_sd_card_fallback': settings.use_sd_card_fallback
         },
         'telemetry': latest_telemetry,
         'telemetry_age': telemetry_age
@@ -603,11 +611,98 @@ def update_admin_settings():
             settings.wifi_ssid = data['wifi_ssid']
         if 'wifi_password' in data:
             settings.wifi_password = data['wifi_password']
+        if 'use_sd_card_fallback' in data:
+            settings.use_sd_card_fallback = bool(data['use_sd_card_fallback'])
             
         db.session.commit()
+        
+        # Prepare settings dict for push
+        settings_dict = {
+            'polling_rate': settings.polling_rate,
+            'gpio_slowdown': settings.gpio_slowdown,
+            'hardware_pulsing': settings.hardware_pulsing,
+            'brightness': settings.brightness,
+            'position_1': settings.position_1,
+            'position_2': settings.position_2,
+            'request_send_rate': settings.request_send_rate,
+            'wifi_ssid': settings.wifi_ssid,
+            'wifi_password': settings.wifi_password,
+            'use_sd_card_fallback': settings.use_sd_card_fallback
+        }
+        
+        # Trigger push if client IP is known
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+            threading.Thread(target=push_settings_to_client, args=(settings_dict, client_ip)).start()
+            
         return jsonify({'message': 'Settings updated successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+# --- SD Card Routes ---
+@app.route('/api/sd/files', methods=['GET'])
+@login_required
+def list_sd_files():
+    try:
+        files = []
+        if os.path.exists(SD_UPLOAD_FOLDER):
+            for f in os.listdir(SD_UPLOAD_FOLDER):
+                if os.path.isfile(os.path.join(SD_UPLOAD_FOLDER, f)):
+                    files.append(f)
+        return jsonify({'files': files})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sd/upload', methods=['POST'])
+@login_required
+def upload_sd_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    if file:
+        filename = file.filename
+        filepath = os.path.join(SD_UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        
+        # Try to push to client if connected
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+            threading.Thread(target=push_file_to_client, args=(filepath, filename, client_ip)).start()
+            return jsonify({'message': 'File uploaded and push started'})
+        
+        return jsonify({'message': 'File uploaded (Client not connected, stored locally)'})
+
+@app.route('/api/sd/files/<filename>', methods=['DELETE'])
+@login_required
+def delete_sd_file(filename):
+    try:
+        filepath = os.path.join(SD_UPLOAD_FOLDER, filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            return jsonify({'message': 'File deleted'})
+        return jsonify({'error': 'File not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def push_file_to_client(filepath, filename, client_ip):
+    """
+    Pushes a file to the client's SD card storage.
+    """
+    url = f"http://{client_ip}:5000/api/sd/upload"
+    try:
+        with open(filepath, 'rb') as f:
+            files = {'file': (filename, f)}
+            print(f"Pushing file {filename} to {url}")
+            response = requests.post(url, files=files, timeout=10)
+            if response.status_code == 200:
+                print(f"Successfully pushed {filename}")
+            else:
+                print(f"Failed to push {filename}: {response.text}")
+    except Exception as e:
+        print(f"Error pushing file: {e}")
 
 if __name__ == '__main__':
     with app.app_context():
