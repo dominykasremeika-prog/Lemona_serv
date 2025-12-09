@@ -238,14 +238,9 @@ class MatrixController:
 
 controller = MatrixController()
 
-def process_upload(file_storage):
-    """Processes an uploaded file and returns a content dict."""
-    filename = file_storage.filename.lower()
-    
-    # Save to temp file for imageio
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp:
-        file_storage.save(temp.name)
-        temp_path = temp.name
+def process_content_from_path(temp_path, filename):
+    """Processes a file from a path and returns a content dict."""
+    filename = filename.lower()
     
     try:
         if filename.endswith(('.mp4', '.avi', '.mov', '.mkv')):
@@ -314,6 +309,16 @@ def process_upload(file_storage):
     except Exception as e:
         print(f"Error processing file: {e}")
         raise e
+
+def process_upload(file_storage):
+    """Legacy wrapper for process_content_from_path"""
+    filename = file_storage.filename.lower()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp:
+        file_storage.save(temp.name)
+        temp_path = temp.name
+    
+    try:
+        return process_content_from_path(temp_path, filename)
     finally:
         if os.path.exists(temp_path):
             try:
@@ -470,9 +475,31 @@ def handle_draw():
         print(f"Error in draw: {e}")
         return jsonify({'error': str(e)}), 500
 
+def push_live_content_to_client(mode, client_ip, path_a, filename_a, path_b=None, filename_b=None):
+    """Pushes live content to the client for immediate playback."""
+    url = f"http://{client_ip}:5000/api/live/upload"
+    try:
+        files = {}
+        if path_a:
+            files['file_a'] = (filename_a, open(path_a, 'rb'))
+        if path_b:
+            files['file_b'] = (filename_b, open(path_b, 'rb'))
+            
+        data = {'mode': mode}
+        print(f"Pushing live content to {url}")
+        requests.post(url, files=files, data=data, timeout=5)
+        
+        # Close files
+        for f in files.values():
+            f[1].close()
+            
+    except Exception as e:
+        print(f"Error pushing live content: {e}")
+
 @app.route('/api/upload', methods=['POST'])
 @approval_required
 def handle_upload():
+    temp_paths = []
     try:
         mode = request.form.get('mode')
         file_a = request.files.get('file_a')
@@ -481,20 +508,40 @@ def handle_upload():
         if not mode:
             return jsonify({'error': 'Mode not specified'}), 400
 
+        # Helper to save temp file
+        def save_temp(f):
+            if not f: return None, None
+            filename = f.filename
+            fd, path = tempfile.mkstemp(suffix=os.path.splitext(filename)[1])
+            os.close(fd)
+            f.save(path)
+            temp_paths.append(path)
+            return path, filename
+
+        path_a, filename_a = save_temp(file_a)
+        path_b, filename_b = save_temp(file_b)
+
+        # Push to client if connected
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+            # We run this synchronously to ensure files exist, or we could thread it if we manage cleanup carefully.
+            # Given the user wants to "post it", blocking briefly is acceptable.
+            push_live_content_to_client(mode, client_ip, path_a, filename_a, path_b, filename_b)
+
         if mode == 'separate':
-            if not file_a or not file_b:
+            if not path_a or not path_b:
                 return jsonify({'error': 'Both files required for separate mode'}), 400
             
-            content_a = process_upload(file_a)
-            content_b = process_upload(file_b)
+            content_a = process_content_from_path(path_a, filename_a)
+            content_b = process_content_from_path(path_b, filename_b)
             controller.display_on_a(content_a)
             controller.display_on_b(content_b)
             
         else:
-            if not file_a:
+            if not path_a:
                 return jsonify({'error': 'File required'}), 400
             
-            content = process_upload(file_a)
+            content = process_content_from_path(path_a, filename_a)
             
             if mode == 'matrix_a':
                 controller.display_on_a(content)
@@ -513,6 +560,14 @@ def handle_upload():
     except Exception as e:
         print(f"Error in upload: {e}")
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Cleanup temp files
+        for path in temp_paths:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except:
+                    pass
 
 # --- Client API Routes ---
 
@@ -703,6 +758,21 @@ def push_file_to_client(filepath, filename, client_ip):
                 print(f"Failed to push {filename}: {response.text}")
     except Exception as e:
         print(f"Error pushing file: {e}")
+
+def push_settings_to_client(settings, client_ip):
+    """
+    Pushes settings to the client.
+    """
+    url = f"http://{client_ip}:5000/api/config"
+    try:
+        print(f"Pushing settings to {url}")
+        response = requests.post(url, json=settings, timeout=5)
+        if response.status_code == 200:
+            print("Successfully pushed settings")
+        else:
+            print(f"Failed to push settings: {response.text}")
+    except Exception as e:
+        print(f"Error pushing settings: {e}")
 
 if __name__ == '__main__':
     with app.app_context():
