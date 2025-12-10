@@ -488,6 +488,8 @@ function loadSDFiles() {
 async function uploadSDFile() {
     const fileInput = document.getElementById('fileSD');
     const file = fileInput.files[0];
+    const mode = document.querySelector('input[name="sd_mode"]:checked').value;
+
     if (!file) {
         showToast('Please select a file', 'error');
         return;
@@ -495,6 +497,7 @@ async function uploadSDFile() {
     
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('mode', mode);
     
     const statusDiv = document.getElementById('sdUploadStatus');
     statusDiv.textContent = 'Uploading...';
@@ -534,6 +537,32 @@ function deleteSDFile(filename) {
             }
         })
         .catch(err => showToast('Failed to delete file', 'error'));
+}
+
+function playSDCard() {
+    fetch('/api/sd/play', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+            } else {
+                showToast(data.message, 'success');
+            }
+        })
+        .catch(err => showToast('Failed to start playback', 'error'));
+}
+
+function stopSDCard() {
+    fetch('/api/sd/stop', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+            } else {
+                showToast(data.message, 'success');
+            }
+        })
+        .catch(err => showToast('Failed to stop playback', 'error'));
 }
 
 // Settings & Telemetry Logic
@@ -592,13 +621,22 @@ function updateConfigForm(settings) {
     document.getElementById('conf-brightness').value = settings.brightness;
     document.getElementById('val-brightness').textContent = settings.brightness;
     document.getElementById('conf-polling').value = settings.polling_rate;
-    document.getElementById('val-polling').textContent = settings.polling_rate;
     document.getElementById('conf-gpio').value = settings.gpio_slowdown;
-    document.getElementById('val-gpio').textContent = settings.gpio_slowdown;
     
     // New fields
+    document.getElementById('conf-rows').value = settings.matrix_rows || 64;
+    document.getElementById('conf-cols').value = settings.matrix_cols || 64;
+    document.getElementById('conf-chain').value = settings.matrix_chain || 2;
+    document.getElementById('conf-parallel').value = settings.matrix_parallel || 1;
+    document.getElementById('conf-pwm').value = settings.matrix_pwm_lsb_nanoseconds || 130;
+    
+    document.getElementById('conf-slide-duration').value = settings.sd_slide_duration || 30.0;
+    document.getElementById('conf-video-fps').value = settings.sd_video_fps || 30.0;
+    document.getElementById('conf-playlist-refresh').value = settings.sd_playlist_refresh_rate || 10.0;
+
     document.getElementById('conf-pos1').value = settings.position_1;
     document.getElementById('val-pos1').textContent = settings.position_1; // Update display
+    document.getElementById('conf-pos2').value = settings.position_2 || 0;
     
     document.getElementById('conf-req-rate').value = settings.request_send_rate;
     
@@ -606,7 +644,6 @@ function updateConfigForm(settings) {
     document.getElementById('conf-wifi-pass').value = settings.wifi_password || '';
 
     document.getElementById('conf-pulsing').checked = settings.hardware_pulsing;
-    document.getElementById('conf-sd-fallback').checked = settings.use_sd_card_fallback;
 }
 
 function rotatePosition1() {
@@ -623,14 +660,25 @@ function saveSettings() {
         gpio_slowdown: parseInt(document.getElementById('conf-gpio').value),
         
         // New fields
+        matrix_rows: parseInt(document.getElementById('conf-rows').value),
+        matrix_cols: parseInt(document.getElementById('conf-cols').value),
+        matrix_chain: parseInt(document.getElementById('conf-chain').value),
+        matrix_parallel: parseInt(document.getElementById('conf-parallel').value),
+        matrix_pwm_lsb_nanoseconds: parseInt(document.getElementById('conf-pwm').value),
+        
+        sd_slide_duration: parseFloat(document.getElementById('conf-slide-duration').value),
+        sd_video_fps: parseFloat(document.getElementById('conf-video-fps').value),
+        sd_playlist_refresh_rate: parseFloat(document.getElementById('conf-playlist-refresh').value),
+
         position_1: parseInt(document.getElementById('conf-pos1').value),
+        position_2: parseInt(document.getElementById('conf-pos2').value),
         request_send_rate: parseFloat(document.getElementById('conf-req-rate').value),
         
         wifi_ssid: document.getElementById('conf-wifi-ssid').value,
         wifi_password: document.getElementById('conf-wifi-pass').value,
+        no_wifi_update: document.getElementById('conf-no-wifi-update').checked,
 
-        hardware_pulsing: document.getElementById('conf-pulsing').checked,
-        use_sd_card_fallback: document.getElementById('conf-sd-fallback').checked
+        hardware_pulsing: document.getElementById('conf-pulsing').checked
     };
 
     fetch('/api/admin/settings', {

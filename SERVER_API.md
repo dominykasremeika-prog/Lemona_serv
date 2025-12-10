@@ -1,99 +1,137 @@
 # Server API Documentation
 
-This document describes the new API endpoints implemented on the server to support client configuration and telemetry.
+## Overview
+This document describes the API endpoints available on the Lemona Server.
 
-## Client Endpoints (For Raspberry Pi)
+## Authentication
+Most endpoints require authentication. The session cookie is used for authentication after logging in via the web interface.
 
-### 1. Report Telemetry
-**Endpoint:** `POST /api/telemetry`
-**Description:** Used by the client to report its current status and metrics to the server.
+## Endpoints
 
-**Request Body:**
-```json
-{
-  "polling_rate": 1.0,
-  "gpio_slowdown": 4,
-  "network": {
-    "type": "WiFi",
-    "ssid": "MyWiFiNetwork",
-    "ip": "192.168.1.105"
-  },
-  "refresh_rate": 60,
-  "hardware_pulsing": true,
-  "brightness": 50,
-  "position_1": 0,
-  "position_2": 0,
-  "request_send_rate": 1.0
-}
-```
+### 1. Client Configuration
+**Endpoint:** `GET /api/client-config`
+**Access:** Public (Used by Raspberry Pi)
+**Description:** Returns the configuration settings for the client.
 
 **Response:**
-- `200 OK`: `{"status": "success"}`
-
----
-
-### 2. Fetch Configuration
-**Endpoint:** `GET /api/client-config`
-**Description:** Used by the client to fetch the desired configuration settings from the server. The client should poll this endpoint periodically or after sending telemetry to check for updates.
-
-**Response Body:**
 ```json
 {
-  "polling_rate": 1.0,
+  "brightness": 50,
   "gpio_slowdown": 4,
   "hardware_pulsing": true,
-  "brightness": 50,
+  "matrix_chain": 2,
+  "matrix_cols": 64,
+  "matrix_parallel": 1,
+  "matrix_pwm_lsb_nanoseconds": 130,
+  "matrix_rows": 64,
+  "polling_rate": 1.0,
   "position_1": 0,
   "position_2": 0,
   "request_send_rate": 1.0,
-  "wifi_ssid": "MyNetwork",
-  "wifi_password": "secretpassword"
+  "sd_playlist_refresh_rate": 10.0,
+  "sd_slide_duration": 30.0,
+  "sd_video_fps": 30.0,
+  "wifi_password": "",
+  "wifi_ssid": ""
 }
 ```
 
-## Admin Endpoints (For Web Interface)
-
-### 3. Get Settings & Telemetry
+### 2. Admin Settings
 **Endpoint:** `GET /api/admin/settings`
-**Description:** Retrieves the current desired settings and the latest telemetry data received from the client.
-**Auth Required:** Yes (Admin)
+**Access:** Admin Required
+**Description:** Returns current settings and telemetry data.
 
-**Response Body:**
-```json
-{
-  "settings": {
-    "polling_rate": 1.0,
-    "gpio_slowdown": 4,
-    "hardware_pulsing": true,
-    "brightness": 50,
-    "position_1": 0,
-    "position_2": 0,
-    "request_send_rate": 1.0,
-    "wifi_ssid": "MyNetwork",
-    "wifi_password": "secretpassword"
-  },
-  "telemetry": { ... },
-  "telemetry_age": 2.5
-}
-```
-
----
-
-### 4. Update Settings
 **Endpoint:** `POST /api/admin/settings`
-**Description:** Updates the desired configuration settings, including WiFi credentials for the client.
-**Auth Required:** Yes (Admin)
+**Access:** Admin Required
+**Description:** Updates the server settings and pushes them to the connected client.
 
 **Request Body:**
 ```json
 {
-  "polling_rate": 2.0,
-  "brightness": 80,
-  "wifi_ssid": "NewNetwork",
-  "wifi_password": "NewPassword"
-  // ... any other setting fields
+  "brightness": 50,
+  "polling_rate": 1.0,
+  "gpio_slowdown": 4,
+  "matrix_rows": 64,
+  "matrix_cols": 64,
+  "matrix_chain": 2,
+  "matrix_parallel": 1,
+  "matrix_pwm_lsb_nanoseconds": 130,
+  "sd_slide_duration": 30.0,
+  "sd_video_fps": 30.0,
+  "sd_playlist_refresh_rate": 10.0,
+  "position_1": 0,
+  "position_2": 0,
+  "request_send_rate": 1.0,
+  "wifi_ssid": "MyWiFi",
+  "wifi_password": "password",
+  "hardware_pulsing": true,
+  "use_sd_card_fallback": true
 }
 ```
 
-**Response:**
-- `200 OK`: `{"message": "Settings updated successfully"}`
+### 3. SD Card Management
+**Endpoint:** `GET /api/sd/files`
+**Access:** Login Required
+**Description:** Lists files stored on the server for SD card sync.
+
+**Endpoint:** `POST /api/sd/upload`
+**Access:** Login Required
+**Description:** Uploads a file to the server and pushes it to the client.
+
+**Request:** `multipart/form-data`
+- `file`: The file to upload.
+- `mode`: (Optional) The display mode for the file (`matrix_a`, `matrix_b`, `both`, `split`). Defaults to `both`.
+
+**Endpoint:** `DELETE /api/sd/files/<filename>`
+**Access:** Login Required
+**Description:** Deletes a file from the server and sends a request to delete it from the client's SD card.
+
+**Endpoint:** `POST /api/sd/play`
+**Access:** Login Required
+**Description:** Commands the client to start playing files from the SD card.
+
+**Endpoint:** `POST /api/sd/stop`
+**Access:** Login Required
+**Description:** Commands the client to stop playing files from the SD card.
+
+### 4. Live Control
+**Endpoint:** `POST /api/upload`
+**Access:** Approved User Required
+**Description:** Uploads content for immediate live playback.
+
+**Request:** `multipart/form-data`
+- `mode`: `matrix_a`, `matrix_b`, `both`, `split`, `separate`
+- `file_a`: Primary file
+- `file_b`: Secondary file (for `separate` mode)
+
+**Endpoint:** `POST /api/draw`
+**Access:** Approved User Required
+**Description:** Uploads a drawing from the canvas.
+
+**Request Body:**
+```json
+{
+  "image": "data:image/png;base64,..."
+}
+```
+
+**Endpoint:** `POST /api/clear`
+**Access:** Approved User Required
+**Description:** Clears the matrix display.
+
+### 5. Telemetry
+**Endpoint:** `POST /api/telemetry`
+**Access:** Public (Used by Raspberry Pi)
+**Description:** Receives status updates from the client.
+
+**Request Body:**
+```json
+{
+  "network": {
+    "ip": "192.168.1.100",
+    "ssid": "MyWiFi",
+    "type": "wifi"
+  },
+  "refresh_rate": 60.0
+}
+```

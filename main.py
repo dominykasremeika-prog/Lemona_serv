@@ -47,7 +47,24 @@ class ClientSettings(db.Model):
     request_send_rate = db.Column(db.Float, default=1.0)
     wifi_ssid = db.Column(db.String(100), default="")
     wifi_password = db.Column(db.String(100), default="")
-    use_sd_card_fallback = db.Column(db.Boolean, default=False)
+    # use_sd_card_fallback = db.Column(db.Boolean, default=False) # Deprecated
+    
+    # New fields
+    matrix_rows = db.Column(db.Integer, default=64)
+    matrix_cols = db.Column(db.Integer, default=64)
+    matrix_chain = db.Column(db.Integer, default=2)
+    matrix_parallel = db.Column(db.Integer, default=1)
+    matrix_pwm_lsb_nanoseconds = db.Column(db.Integer, default=130)
+    sd_slide_duration = db.Column(db.Float, default=30.0)
+    sd_video_fps = db.Column(db.Float, default=30.0)
+    sd_playlist_refresh_rate = db.Column(db.Float, default=10.0)
+    
+    # Telemetry fields (persisted)
+    last_ip = db.Column(db.String(20), default="")
+    last_ssid = db.Column(db.String(100), default="")
+    last_network_type = db.Column(db.String(20), default="")
+    last_refresh_rate = db.Column(db.Float, default=0.0)
+    last_seen = db.Column(db.Float, default=0.0)
     
     # Default singleton retrieval
     @classmethod
@@ -64,7 +81,15 @@ class ClientSettings(db.Model):
                 request_send_rate=1.0,
                 wifi_ssid="",
                 wifi_password="",
-                use_sd_card_fallback=False
+                # use_sd_card_fallback=False,
+                matrix_rows=64,
+                matrix_cols=64,
+                matrix_chain=2,
+                matrix_parallel=1,
+                matrix_pwm_lsb_nanoseconds=130,
+                sd_slide_duration=30.0,
+                sd_video_fps=30.0,
+                sd_playlist_refresh_rate=10.0
             )
             db.session.add(settings)
             db.session.commit()
@@ -453,6 +478,7 @@ def handle_clear():
 @app.route('/api/draw', methods=['POST'])
 @approval_required
 def handle_draw():
+    temp_path = None
     try:
         data = request.json
         image_data = data.get('image') # Base64 string
@@ -470,10 +496,32 @@ def handle_draw():
         # The drawing canvas is treated as "Split" mode (spanning both)
         controller.display_split(image)
         
+        # Push to client
+        fd, temp_path = tempfile.mkstemp(suffix='.png')
+        os.close(fd)
+        image.save(temp_path, format='PNG')
+        
+        client_ip = None
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+        else:
+            settings = ClientSettings.get_settings()
+            if settings.last_ip:
+                client_ip = settings.last_ip
+
+        if client_ip:
+            push_live_content_to_client('split', client_ip, temp_path, 'drawing.png')
+
         return jsonify({'status': 'success', 'message': 'Drawing displayed'})
     except Exception as e:
         print(f"Error in draw: {e}")
         return jsonify({'error': str(e)}), 500
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
 
 def push_live_content_to_client(mode, client_ip, path_a, filename_a, path_b=None, filename_b=None):
     """Pushes live content to the client for immediate playback."""
@@ -521,9 +569,16 @@ def handle_upload():
         path_a, filename_a = save_temp(file_a)
         path_b, filename_b = save_temp(file_b)
 
-        # Push to client if connected
+        # Push to client if connected (or use last known IP)
+        client_ip = None
         if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
             client_ip = latest_telemetry['network']['ip']
+        else:
+            settings = ClientSettings.get_settings()
+            if settings.last_ip:
+                client_ip = settings.last_ip
+
+        if client_ip:
             # We run this synchronously to ensure files exist, or we could thread it if we manage cleanup carefully.
             # Given the user wants to "post it", blocking briefly is acceptable.
             push_live_content_to_client(mode, client_ip, path_a, filename_a, path_b, filename_b)
@@ -583,6 +638,19 @@ def receive_telemetry():
         data['last_seen'] = time.time()
         latest_telemetry = data
         
+        # Update database with latest telemetry info
+        if 'network' in data and 'ip' in data['network']:
+            settings = ClientSettings.get_settings()
+            settings.last_ip = data['network']['ip']
+            if 'ssid' in data['network']:
+                settings.last_ssid = data['network']['ssid']
+            if 'type' in data['network']:
+                settings.last_network_type = data['network']['type']
+            if 'refresh_rate' in data:
+                settings.last_refresh_rate = float(data.get('refresh_rate', 0))
+            settings.last_seen = data['last_seen']
+            db.session.commit()
+        
         # We could optionally return the new config here if we wanted to combine calls
         return jsonify({'status': 'success'}), 200
     except Exception as e:
@@ -593,6 +661,28 @@ def get_client_config():
     """
     Endpoint for the Raspberry Pi to fetch its configuration.
     """
+    # Update telemetry/online status from this heartbeat
+    try:
+        client_ip = request.remote_addr
+        now = time.time()
+        
+        # Update global telemetry
+        global latest_telemetry
+        if 'network' not in latest_telemetry:
+            latest_telemetry['network'] = {}
+        
+        latest_telemetry['network']['ip'] = client_ip
+        latest_telemetry['last_seen'] = now
+        latest_telemetry['timestamp'] = now # Ensure age calculation works
+        
+        # Update database
+        settings = ClientSettings.get_settings()
+        settings.last_ip = client_ip
+        settings.last_seen = now
+        db.session.commit()
+    except Exception as e:
+        print(f"Error updating telemetry from config fetch: {e}")
+
     settings = ClientSettings.get_settings()
     return jsonify({
         'polling_rate': settings.polling_rate,
@@ -603,7 +693,16 @@ def get_client_config():
         'position_2': settings.position_2,
         'request_send_rate': settings.request_send_rate,
         'wifi_ssid': settings.wifi_ssid,
-        'wifi_password': settings.wifi_password
+        'wifi_password': settings.wifi_password,
+        # 'use_sd_card_fallback': settings.use_sd_card_fallback,
+        'matrix_rows': settings.matrix_rows,
+        'matrix_cols': settings.matrix_cols,
+        'matrix_chain': settings.matrix_chain,
+        'matrix_parallel': settings.matrix_parallel,
+        'matrix_pwm_lsb_nanoseconds': settings.matrix_pwm_lsb_nanoseconds,
+        'sd_slide_duration': settings.sd_slide_duration,
+        'sd_video_fps': settings.sd_video_fps,
+        'sd_playlist_refresh_rate': settings.sd_playlist_refresh_rate
     })
 
 # --- Admin Settings Routes ---
@@ -632,7 +731,15 @@ def get_admin_settings():
             'request_send_rate': settings.request_send_rate,
             'wifi_ssid': settings.wifi_ssid,
             'wifi_password': settings.wifi_password,
-            'use_sd_card_fallback': settings.use_sd_card_fallback
+            # 'use_sd_card_fallback': settings.use_sd_card_fallback,
+            'matrix_rows': settings.matrix_rows,
+            'matrix_cols': settings.matrix_cols,
+            'matrix_chain': settings.matrix_chain,
+            'matrix_parallel': settings.matrix_parallel,
+            'matrix_pwm_lsb_nanoseconds': settings.matrix_pwm_lsb_nanoseconds,
+            'sd_slide_duration': settings.sd_slide_duration,
+            'sd_video_fps': settings.sd_video_fps,
+            'sd_playlist_refresh_rate': settings.sd_playlist_refresh_rate
         },
         'telemetry': latest_telemetry,
         'telemetry_age': telemetry_age
@@ -662,12 +769,27 @@ def update_admin_settings():
             settings.position_2 = int(data['position_2'])
         if 'request_send_rate' in data:
             settings.request_send_rate = float(data['request_send_rate'])
-        if 'wifi_ssid' in data:
-            settings.wifi_ssid = data['wifi_ssid']
-        if 'wifi_password' in data:
-            settings.wifi_password = data['wifi_password']
-        if 'use_sd_card_fallback' in data:
-            settings.use_sd_card_fallback = bool(data['use_sd_card_fallback'])
+            
+        no_wifi_update = data.get('no_wifi_update', False)
+        
+        if not no_wifi_update:
+            if 'wifi_ssid' in data:
+                settings.wifi_ssid = data['wifi_ssid']
+            if 'wifi_password' in data:
+                settings.wifi_password = data['wifi_password']
+                
+        # if 'use_sd_card_fallback' in data:
+        #     settings.use_sd_card_fallback = bool(data['use_sd_card_fallback'])
+        
+        # New fields
+        if 'matrix_rows' in data: settings.matrix_rows = int(data['matrix_rows'])
+        if 'matrix_cols' in data: settings.matrix_cols = int(data['matrix_cols'])
+        if 'matrix_chain' in data: settings.matrix_chain = int(data['matrix_chain'])
+        if 'matrix_parallel' in data: settings.matrix_parallel = int(data['matrix_parallel'])
+        if 'matrix_pwm_lsb_nanoseconds' in data: settings.matrix_pwm_lsb_nanoseconds = int(data['matrix_pwm_lsb_nanoseconds'])
+        if 'sd_slide_duration' in data: settings.sd_slide_duration = float(data['sd_slide_duration'])
+        if 'sd_video_fps' in data: settings.sd_video_fps = float(data['sd_video_fps'])
+        if 'sd_playlist_refresh_rate' in data: settings.sd_playlist_refresh_rate = float(data['sd_playlist_refresh_rate'])
             
         db.session.commit()
         
@@ -680,14 +802,29 @@ def update_admin_settings():
             'position_1': settings.position_1,
             'position_2': settings.position_2,
             'request_send_rate': settings.request_send_rate,
-            'wifi_ssid': settings.wifi_ssid,
-            'wifi_password': settings.wifi_password,
-            'use_sd_card_fallback': settings.use_sd_card_fallback
+            # 'use_sd_card_fallback': settings.use_sd_card_fallback,
+            'matrix_rows': settings.matrix_rows,
+            'matrix_cols': settings.matrix_cols,
+            'matrix_chain': settings.matrix_chain,
+            'matrix_parallel': settings.matrix_parallel,
+            'matrix_pwm_lsb_nanoseconds': settings.matrix_pwm_lsb_nanoseconds,
+            'sd_slide_duration': settings.sd_slide_duration,
+            'sd_video_fps': settings.sd_video_fps,
+            'sd_playlist_refresh_rate': settings.sd_playlist_refresh_rate
         }
         
-        # Trigger push if client IP is known
+        if not no_wifi_update:
+            settings_dict['wifi_ssid'] = settings.wifi_ssid
+            settings_dict['wifi_password'] = settings.wifi_password
+        
+        # Trigger push if client IP is known (check telemetry first, then DB)
+        client_ip = None
         if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
             client_ip = latest_telemetry['network']['ip']
+        elif settings.last_ip:
+            client_ip = settings.last_ip
+            
+        if client_ip:
             threading.Thread(target=push_settings_to_client, args=(settings_dict, client_ip)).start()
             
         return jsonify({'message': 'Settings updated successfully'})
@@ -714,6 +851,8 @@ def upload_sd_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
+    mode = request.form.get('mode', 'both') # Default to 'both' if not specified
+
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
@@ -722,10 +861,17 @@ def upload_sd_file():
         filepath = os.path.join(SD_UPLOAD_FOLDER, filename)
         file.save(filepath)
         
-        # Try to push to client if connected
+        # Try to push to client if connected (or use last known IP)
+        client_ip = None
         if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
             client_ip = latest_telemetry['network']['ip']
-            threading.Thread(target=push_file_to_client, args=(filepath, filename, client_ip)).start()
+        else:
+            settings = ClientSettings.get_settings()
+            if settings.last_ip:
+                client_ip = settings.last_ip
+
+        if client_ip:
+            threading.Thread(target=push_file_to_client, args=(filepath, filename, client_ip, mode)).start()
             return jsonify({'message': 'File uploaded and push started'})
         
         return jsonify({'message': 'File uploaded (Client not connected, stored locally)'})
@@ -734,15 +880,95 @@ def upload_sd_file():
 @login_required
 def delete_sd_file(filename):
     try:
+        # Delete locally
         filepath = os.path.join(SD_UPLOAD_FOLDER, filename)
+        local_deleted = False
         if os.path.exists(filepath):
             os.remove(filepath)
-            return jsonify({'message': 'File deleted'})
-        return jsonify({'error': 'File not found'}), 404
+            local_deleted = True
+            
+        # Propagate to client
+        client_ip = None
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+        else:
+            settings = ClientSettings.get_settings()
+            if settings.last_ip:
+                client_ip = settings.last_ip
+
+        client_msg = ""
+        if client_ip:
+            url = f"http://{client_ip}:5000/api/sd/files/{filename}"
+            try:
+                resp = requests.delete(url, timeout=5)
+                if resp.status_code == 200:
+                    client_msg = " and deleted from client"
+                else:
+                    client_msg = f" but client returned {resp.status_code}"
+            except Exception as e:
+                client_msg = f" but failed to contact client: {e}"
+        
+        if local_deleted:
+            return jsonify({'message': f'File deleted locally{client_msg}'})
+        elif "deleted from client" in client_msg:
+             return jsonify({'message': f'File not found locally, but{client_msg}'})
+        else:
+            return jsonify({'error': 'File not found locally'}), 404
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def push_file_to_client(filepath, filename, client_ip):
+@app.route('/api/sd/play', methods=['POST'])
+@login_required
+def play_sd_card():
+    try:
+        # Try to push to client if connected (or use last known IP)
+        client_ip = None
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+        else:
+            settings = ClientSettings.get_settings()
+            if settings.last_ip:
+                client_ip = settings.last_ip
+
+        if client_ip:
+            url = f"http://{client_ip}:5000/api/sd/play"
+            try:
+                requests.post(url, timeout=5)
+                return jsonify({'message': 'Playback started'})
+            except Exception as e:
+                return jsonify({'error': f'Failed to contact client: {e}'}), 500
+        
+        return jsonify({'error': 'Client not connected'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sd/stop', methods=['POST'])
+@login_required
+def stop_sd_card():
+    try:
+        # Try to push to client if connected (or use last known IP)
+        client_ip = None
+        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+            client_ip = latest_telemetry['network']['ip']
+        else:
+            settings = ClientSettings.get_settings()
+            if settings.last_ip:
+                client_ip = settings.last_ip
+
+        if client_ip:
+            url = f"http://{client_ip}:5000/api/sd/stop"
+            try:
+                requests.post(url, timeout=5)
+                return jsonify({'message': 'Playback stopped'})
+            except Exception as e:
+                return jsonify({'error': f'Failed to contact client: {e}'}), 500
+        
+        return jsonify({'error': 'Client not connected'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def push_file_to_client(filepath, filename, client_ip, mode='both'):
     """
     Pushes a file to the client's SD card storage.
     """
@@ -750,8 +976,9 @@ def push_file_to_client(filepath, filename, client_ip):
     try:
         with open(filepath, 'rb') as f:
             files = {'file': (filename, f)}
-            print(f"Pushing file {filename} to {url}")
-            response = requests.post(url, files=files, timeout=10)
+            data = {'mode': mode}
+            print(f"Pushing file {filename} to {url} with mode {mode}")
+            response = requests.post(url, files=files, data=data, timeout=10)
             if response.status_code == 200:
                 print(f"Successfully pushed {filename}")
             else:
