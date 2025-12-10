@@ -1,96 +1,147 @@
-# LED Matrix Server API Documentation
+# Lemona Server API Documentation
 
-This documentation describes the API endpoints available for controlling and retrieving data from the LED Matrix Server. This is particularly useful for integrating with a Raspberry Pi or other hardware controllers.
+This document details the API endpoints available in the Lemona Server (`main.py`). These endpoints are used by the web interface and the client device (Raspberry Pi) to communicate, transfer files, and manage settings.
 
-## Base URL
+## Authentication
 
-Assuming the server is running on `http://<server-ip>:5000`.
+Most endpoints require authentication.
+- **Web UI Endpoints**: Require a user session (login via `/login`).
+- **Client Endpoints**: Some are open for the device to poll, others are protected.
+- **Admin Endpoints**: Require the user to have `is_admin=True`.
 
-## Endpoints
+---
 
-### 1. Get Matrix Image
+## 1. Public / Client Endpoints
 
-Retrieves the current image being displayed on a specific matrix. This is the primary endpoint for the Raspberry Pi to poll.
+These endpoints are primarily used by the Raspberry Pi client or for initial access.
 
-*   **URL**: `/api/matrix/<matrix_id>`
-*   **Method**: `GET`
-*   **URL Params**:
-    *   `matrix_id`: `a` for the left matrix, `b` for the right matrix.
-*   **Response**: Returns a PNG image file.
-*   **Example (Python/Requests)**:
+### `GET /api/matrix/<a>`
+Retrieves the current image frame for a specific matrix.
+- **Parameters**: `a` (path parameter) - either `'a'` or `'b'`.
+- **Returns**: PNG image file.
+- **Usage**: The Raspberry Pi polls this endpoint to get the live image to display.
 
-    ```python
-    import requests
-    from PIL import Image
-    from io import BytesIO
+### `POST /api/telemetry`
+Receives status updates from the Raspberry Pi.
+- **Body (JSON)**:
+  ```json
+  {
+    "network": {
+      "ip": "192.168.1.105",
+      "ssid": "MyWiFi",
+      "type": "wifi"
+    },
+    "refresh_rate": 60.0
+  }
+  ```
+- **Returns**: `{"status": "success"}`
+- **Usage**: The Pi sends a heartbeat to this endpoint to report its IP and status.
 
-    # Fetch image for Matrix A
-    response = requests.get('http://<server-ip>:5000/api/matrix/a')
-    
-    if response.status_code == 200:
-        img = Image.open(BytesIO(response.content))
-        # Now you can display 'img' on your hardware matrix
-        # e.g., matrix.SetImage(img)
-    ```
+### `GET /api/client-config`
+Allows the Raspberry Pi to fetch its configuration settings.
+- **Returns**: JSON object containing all client settings (polling rate, brightness, matrix hardware config, etc.).
+- **Usage**: The Pi calls this on startup or periodically to sync settings.
 
-### 2. Upload Image (Control)
+---
 
-Uploads an image or sets the display mode. This is used by the Web UI but can be used programmatically.
+## 2. User / Control Endpoints
 
-*   **URL**: `/api/upload`
-*   **Method**: `POST`
-*   **Form Data**:
-    *   `mode`: One of `matrix_a`, `matrix_b`, `both`, `split`, `separate`.
-    *   `file_a`: The image file for Matrix A (or the main image).
-    *   `file_b`: The image file for Matrix B (only required for `separate` mode).
-*   **Response**: JSON object with status.
+These endpoints require a logged-in user with an approved account.
 
-### 3. Draw (Control)
+### `GET /api/status`
+Returns the connection status of the matrices.
+- **Returns**: `{"a": true/false, "b": true/false}`
+- **Usage**: Used by the web UI to show the "Raspberry Pi" connection indicator.
 
-Sends a base64 encoded image from the drawing canvas.
+### `POST /api/clear`
+Clears the display (sets it to black).
+- **Returns**: `{"status": "success", "message": "Matrices cleared"}`
 
-*   **URL**: `/api/draw`
-*   **Method**: `POST`
-*   **JSON Body**:
-    *   `image`: Base64 encoded string of the image (e.g., `data:image/png;base64,...`).
+### `POST /api/draw`
+Uploads a drawing from the canvas.
+- **Body (JSON)**: `{"image": "base64_encoded_image_string"}`
+- **Returns**: `{"status": "success", "message": "Drawing displayed"}`
+- **Side Effect**: Pushes the drawing immediately to the client if connected.
 
-## Raspberry Pi Integration Example
+### `POST /api/upload`
+Uploads image or video files to be displayed immediately.
+- **Form Data**:
+  - `mode`: `matrix_a`, `matrix_b`, `both`, `split`, or `separate`.
+  - `file_a`: File for Matrix A (or main file).
+  - `file_b`: File for Matrix B (only for `separate` mode).
+- **Returns**: JSON status message.
+- **Side Effect**: Pushes the content to the client for immediate playback.
 
-Here is a simple script you can run on your Raspberry Pi to continuously update the matrices from the server.
+---
 
-```python
-import time
-import requests
-from io import BytesIO
-from PIL import Image
-# Import your matrix library, e.g.:
-# from rgbmatrix import RGBMatrix, RGBMatrixOptions
+## 3. SD Card Management Endpoints
 
-def fetch_and_display(matrix_url, led_matrix_instance):
-    try:
-        response = requests.get(matrix_url, timeout=1)
-        if response.status_code == 200:
-            img = Image.open(BytesIO(response.content))
-            img = img.convert('RGB')
-            # led_matrix_instance.SetImage(img)
-            print(f"Updated from {matrix_url}")
-    except Exception as e:
-        print(f"Error fetching {matrix_url}: {e}")
+Endpoints for managing files stored on the Raspberry Pi's SD card.
 
-def main():
-    # Setup your matrix hardware here...
-    
-    SERVER_IP = "192.168.1.100" # Change to your PC's IP
-    
-    while True:
-        # Update Matrix A
-        fetch_and_display(f"http://{SERVER_IP}:5000/api/matrix/a", matrix_a_instance)
-        
-        # Update Matrix B
-        fetch_and_display(f"http://{SERVER_IP}:5000/api/matrix/b", matrix_b_instance)
-        
-        time.sleep(0.1) # Adjust refresh rate
+### `GET /api/sd/files`
+Lists files stored on the SD card.
+- **Returns**: `{"files": ["file1.mp4", "image.png"], "source": "client" or "local"}`
+- **Behavior**: Tries to fetch the list from the connected Pi. If unreachable, falls back to the server's local cache.
 
-if __name__ == "__main__":
-    main()
-```
+### `POST /api/sd/upload`
+Uploads a file to be stored on the SD card.
+- **Form Data**:
+  - `file`: The file to upload.
+  - `mode`: Display mode (`matrix_a`, `both`, etc.).
+  - `position_1`: Rotation/Position setting for Matrix 1.
+  - `position_2`: Position setting for Matrix 2.
+- **Returns**: JSON status message.
+- **Behavior**: Uploads to server, then pushes to the client.
+
+### `DELETE /api/sd/files/<filename>`
+Deletes a file from the SD card.
+- **Parameters**: `filename` (path parameter).
+- **Returns**: JSON status message.
+- **Behavior**: Deletes locally and sends a delete request to the client.
+
+### `POST /api/sd/play`
+Starts playback of the SD card playlist on the client.
+- **Returns**: JSON status message.
+
+### `POST /api/sd/stop`
+Stops SD card playback on the client.
+- **Returns**: JSON status message.
+
+---
+
+## 4. Admin Endpoints
+
+These endpoints require `admin_required` (User must be Admin).
+
+### `GET /api/admin/users`
+Lists all registered users.
+- **Returns**: JSON array of user objects.
+
+### `POST /api/admin/approve/<user_id>`
+Approves a newly registered user.
+
+### `POST /api/admin/promote/<user_id>`
+Promotes a user to Admin.
+
+### `POST /api/admin/kick/<user_id>`
+Deletes a user account.
+
+### `GET /api/admin/settings`
+Retrieves the global server/client settings.
+- **Returns**: JSON object with `settings` (config) and `telemetry` (live data).
+
+### `POST /api/admin/settings`
+Updates the global settings.
+- **Body (JSON)**: Any subset of settings fields (e.g., `brightness`, `polling_rate`, `wifi_ssid`, `no_wifi_update`).
+- **Returns**: JSON success message.
+- **Side Effect**: Pushes the new configuration to the client immediately.
+
+---
+
+## 5. Authentication Routes
+
+Standard web routes for user management.
+
+- `GET/POST /register`: Create a new account.
+- `GET/POST /login`: Log in.
+- `GET /logout`: Log out.
