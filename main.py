@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify, send_file, redirect,
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from PIL import Image, ImageDraw, ImageSequence
+from PIL import Image, ImageSequence
 import io
 import base64
 import time
@@ -35,6 +35,15 @@ class User(db.Model, UserMixin):
 
     def __repr__(self):
         return f"User('{self.username}', '{self.is_admin}', '{self.is_approved}')"
+
+def get_client_ip():
+    """Helper to get the client IP from telemetry or settings."""
+    if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
+        return latest_telemetry['network']['ip']
+    settings = ClientSettings.get_settings()
+    if settings.last_ip:
+        return settings.last_ip
+    return None
 
 class ClientSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -72,7 +81,7 @@ class ClientSettings(db.Model):
         settings = cls.query.first()
         if not settings:
             settings = cls(
-                polling_rate=1.0, 
+                polling_rate=5.0, 
                 gpio_slowdown=4, 
                 hardware_pulsing=True, 
                 brightness=50, 
@@ -501,13 +510,7 @@ def handle_draw():
         os.close(fd)
         image.save(temp_path, format='PNG')
         
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        else:
-            settings = ClientSettings.get_settings()
-            if settings.last_ip:
-                client_ip = settings.last_ip
+        client_ip = get_client_ip()
 
         if client_ip:
             push_live_content_to_client('split', client_ip, temp_path, 'drawing.png')
@@ -570,13 +573,7 @@ def handle_upload():
         path_b, filename_b = save_temp(file_b)
 
         # Push to client if connected (or use last known IP)
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        else:
-            settings = ClientSettings.get_settings()
-            if settings.last_ip:
-                client_ip = settings.last_ip
+        client_ip = get_client_ip()
 
         if client_ip:
             # We run this synchronously to ensure files exist, or we could thread it if we manage cleanup carefully.
@@ -818,11 +815,7 @@ def update_admin_settings():
             settings_dict['wifi_password'] = settings.wifi_password
         
         # Trigger push if client IP is known (check telemetry first, then DB)
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        elif settings.last_ip:
-            client_ip = settings.last_ip
+        client_ip = get_client_ip()
             
         if client_ip:
             threading.Thread(target=push_settings_to_client, args=(settings_dict, client_ip)).start()
@@ -836,12 +829,26 @@ def update_admin_settings():
 @login_required
 def list_sd_files():
     try:
+        # Try to get client files first
+        client_ip = get_client_ip()
+        
+        if client_ip:
+            try:
+                url = f"http://{client_ip}:5000/api/sd/files"
+                resp = requests.get(url, timeout=3)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return jsonify({'files': data.get('files', []), 'source': 'client'})
+            except Exception as e:
+                print(f"Failed to fetch files from client: {e}")
+
+        # Fallback to local files
         files = []
         if os.path.exists(SD_UPLOAD_FOLDER):
             for f in os.listdir(SD_UPLOAD_FOLDER):
                 if os.path.isfile(os.path.join(SD_UPLOAD_FOLDER, f)):
                     files.append(f)
-        return jsonify({'files': files})
+        return jsonify({'files': files, 'source': 'local'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -852,6 +859,8 @@ def upload_sd_file():
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
     mode = request.form.get('mode', 'both') # Default to 'both' if not specified
+    pos1 = request.form.get('position_1')
+    pos2 = request.form.get('position_2')
 
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
@@ -862,16 +871,10 @@ def upload_sd_file():
         file.save(filepath)
         
         # Try to push to client if connected (or use last known IP)
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        else:
-            settings = ClientSettings.get_settings()
-            if settings.last_ip:
-                client_ip = settings.last_ip
+        client_ip = get_client_ip()
 
         if client_ip:
-            threading.Thread(target=push_file_to_client, args=(filepath, filename, client_ip, mode)).start()
+            threading.Thread(target=push_file_to_client, args=(filepath, filename, client_ip, mode, pos1, pos2)).start()
             return jsonify({'message': 'File uploaded and push started'})
         
         return jsonify({'message': 'File uploaded (Client not connected, stored locally)'})
@@ -888,13 +891,7 @@ def delete_sd_file(filename):
             local_deleted = True
             
         # Propagate to client
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        else:
-            settings = ClientSettings.get_settings()
-            if settings.last_ip:
-                client_ip = settings.last_ip
+        client_ip = get_client_ip()
 
         client_msg = ""
         if client_ip:
@@ -923,13 +920,7 @@ def delete_sd_file(filename):
 def play_sd_card():
     try:
         # Try to push to client if connected (or use last known IP)
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        else:
-            settings = ClientSettings.get_settings()
-            if settings.last_ip:
-                client_ip = settings.last_ip
+        client_ip = get_client_ip()
 
         if client_ip:
             url = f"http://{client_ip}:5000/api/sd/play"
@@ -948,13 +939,7 @@ def play_sd_card():
 def stop_sd_card():
     try:
         # Try to push to client if connected (or use last known IP)
-        client_ip = None
-        if 'network' in latest_telemetry and 'ip' in latest_telemetry['network']:
-            client_ip = latest_telemetry['network']['ip']
-        else:
-            settings = ClientSettings.get_settings()
-            if settings.last_ip:
-                client_ip = settings.last_ip
+        client_ip = get_client_ip()
 
         if client_ip:
             url = f"http://{client_ip}:5000/api/sd/stop"
@@ -968,7 +953,7 @@ def stop_sd_card():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def push_file_to_client(filepath, filename, client_ip, mode='both'):
+def push_file_to_client(filepath, filename, client_ip, mode='both', pos1=None, pos2=None):
     """
     Pushes a file to the client's SD card storage.
     """
@@ -977,6 +962,9 @@ def push_file_to_client(filepath, filename, client_ip, mode='both'):
         with open(filepath, 'rb') as f:
             files = {'file': (filename, f)}
             data = {'mode': mode}
+            if pos1 is not None: data['position_1'] = pos1
+            if pos2 is not None: data['position_2'] = pos2
+            
             print(f"Pushing file {filename} to {url} with mode {mode}")
             response = requests.post(url, files=files, data=data, timeout=10)
             if response.status_code == 200:

@@ -460,8 +460,24 @@ function loadSDFiles() {
         .then(res => res.json())
         .then(data => {
             list.innerHTML = '';
-            if (data.files.length === 0) {
-                list.innerHTML = '<p>No files found.</p>';
+            
+            // Add source indicator
+            const sourceInfo = document.createElement('div');
+            sourceInfo.style.marginBottom = '10px';
+            sourceInfo.style.fontSize = '0.9em';
+            if (data.source === 'client') {
+                sourceInfo.innerHTML = 'Source: <strong>Raspberry Pi</strong>';
+                sourceInfo.style.color = '#4CAF50';
+            } else {
+                sourceInfo.innerHTML = 'Source: <strong>Server (Fallback)</strong> - Pi unreachable';
+                sourceInfo.style.color = '#ff9800';
+            }
+            list.appendChild(sourceInfo);
+
+            if (!data.files || data.files.length === 0) {
+                const p = document.createElement('p');
+                p.textContent = 'No files found.';
+                list.appendChild(p);
                 return;
             }
             
@@ -489,6 +505,8 @@ async function uploadSDFile() {
     const fileInput = document.getElementById('fileSD');
     const file = fileInput.files[0];
     const mode = document.querySelector('input[name="sd_mode"]:checked').value;
+    const pos1 = document.getElementById('conf-pos1').value;
+    const pos2 = document.getElementById('conf-pos2').value;
 
     if (!file) {
         showToast('Please select a file', 'error');
@@ -498,6 +516,8 @@ async function uploadSDFile() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('mode', mode);
+    formData.append('position_1', pos1);
+    formData.append('position_2', pos2);
     
     const statusDiv = document.getElementById('sdUploadStatus');
     statusDiv.textContent = 'Uploading...';
@@ -571,7 +591,7 @@ let telemetryInterval;
 function startTelemetryPoll() {
     stopTelemetryPoll();
     loadSettings(); // Initial load
-    telemetryInterval = setInterval(loadSettings, 2000); // Poll every 2s
+    telemetryInterval = setInterval(loadSettings, 5000); // Poll every 5s
 }
 
 function stopTelemetryPoll() {
@@ -726,6 +746,6 @@ function updateStatus() {
         .catch(err => console.error("Status poll error", err));
 }
 
-// Poll every 2 seconds
-setInterval(updateStatus, 2000);
+// Poll every 5 seconds
+setInterval(updateStatus, 5000);
 updateStatus();
